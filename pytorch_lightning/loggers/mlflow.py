@@ -3,7 +3,7 @@ Log using `mlflow <https://mlflow.org>'_
 
 .. code-block:: python
 
-    from pytorch_lightning.logging import MLFlowLogger
+    from pytorch_lightning.loggers import MLFlowLogger
     mlf_logger = MLFlowLogger(
         experiment_name="default",
         tracking_uri="file:/."
@@ -39,6 +39,15 @@ logger = getLogger(__name__)
 
 class MLFlowLogger(LightningLoggerBase):
     def __init__(self, experiment_name, tracking_uri=None, tags=None):
+        r"""
+
+        Logs using MLFlow
+
+        Args:
+            experiment_name (str): The name of the experiment
+            tracking_uri (str): where this should track
+            tags (dict): todo this param
+        """
         super().__init__()
         self._mlflow_client = mlflow.tracking.MlflowClient(tracking_uri)
         self.experiment_name = experiment_name
@@ -47,6 +56,15 @@ class MLFlowLogger(LightningLoggerBase):
 
     @property
     def experiment(self):
+        r"""
+
+        Actual mlflow object. To use mlflow features do the following.
+
+        Example::
+
+            self.logger.experiment.some_mlflow_function()
+
+        """
         return self._mlflow_client
 
     @property
@@ -59,7 +77,7 @@ class MLFlowLogger(LightningLoggerBase):
         if expt:
             self._expt_id = expt.experiment_id
         else:
-            logger.warning(f"Experiment with name f{self.experiment_name} not found. Creating it.")
+            logger.warning(f"Experiment with name {self.experiment_name} not found. Creating it.")
             self._expt_id = self._mlflow_client.create_experiment(name=self.experiment_name)
 
         run = self._mlflow_client.create_run(experiment_id=self._expt_id, tags=self.tags)

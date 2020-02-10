@@ -29,7 +29,7 @@ def test_early_stopping_cpu_model(tmpdir):
         show_progress_bar=True,
         logger=tutils.get_test_tube_logger(tmpdir),
         train_percent_check=0.1,
-        val_percent_check=0.1
+        val_percent_check=0.1,
     )
 
     model, hparams = tutils.get_model()
@@ -51,7 +51,7 @@ def test_lbfgs_cpu_model(tmpdir):
         show_progress_bar=False,
         weights_summary='top',
         train_percent_check=1.0,
-        val_percent_check=0.2
+        val_percent_check=0.2,
     )
 
     model, hparams = tutils.get_model(use_test_model=True, lbfgs=True)
@@ -70,7 +70,7 @@ def test_default_logger_callbacks_cpu_model(tmpdir):
         print_nan_grads=True,
         show_progress_bar=False,
         train_percent_check=0.01,
-        val_percent_check=0.01
+        val_percent_check=0.01,
     )
 
     model, hparams = tutils.get_model()
@@ -97,7 +97,7 @@ def test_running_test_after_fitting(tmpdir):
     trainer_options = dict(
         default_save_path=tmpdir,
         show_progress_bar=False,
-        max_epochs=1,
+        max_epochs=4,
         train_percent_check=0.4,
         val_percent_check=0.2,
         test_percent_check=0.2,
@@ -114,7 +114,7 @@ def test_running_test_after_fitting(tmpdir):
     trainer.test()
 
     # test we have good test accuracy
-    tutils.assert_ok_test_acc(trainer)
+    tutils.assert_ok_model_acc(trainer)
 
 
 def test_running_test_without_val(tmpdir):
@@ -140,7 +140,8 @@ def test_running_test_without_val(tmpdir):
         val_percent_check=0.2,
         test_percent_check=0.2,
         checkpoint_callback=checkpoint,
-        logger=logger
+        logger=logger,
+        early_stop_callback=False
     )
 
     # fit model
@@ -152,7 +153,7 @@ def test_running_test_without_val(tmpdir):
     trainer.test()
 
     # test we have good test accuracy
-    tutils.assert_ok_test_acc(trainer)
+    tutils.assert_ok_model_acc(trainer)
 
 
 def test_single_gpu_batch_parse():
@@ -318,6 +319,7 @@ def test_tbptt_cpu_model(tmpdir):
         truncated_bptt_steps=truncated_bptt_steps,
         val_percent_check=0,
         weights_summary=None,
+        early_stop_callback=False
     )
 
     hparams = tutils.get_hparams()

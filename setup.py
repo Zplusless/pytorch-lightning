@@ -44,7 +44,7 @@ setup(
     author=pytorch_lightning.__author__,
     author_email=pytorch_lightning.__author_email__,
     url=pytorch_lightning.__homepage__,
-    download_url='https://github.com/williamFalcon/pytorch-lightning',
+    download_url='https://github.com/PyTorchLightning/pytorch-lightning',
     license=pytorch_lightning.__license__,
     packages=find_packages(exclude=['tests']),
 
@@ -57,6 +57,12 @@ setup(
     python_requires='>=3.6',
     setup_requires=[],
     install_requires=load_requirements(PATH_ROOT),
+
+    project_urls={
+        "Bug Tracker": "https://github.com/PyTorchLightning/pytorch-lightning/issues",
+        "Documentation": "https://pytorch-lightning.rtfd.io/en/latest/",
+        "Source Code": "https://github.com/PyTorchLightning/pytorch-lightning",
+    },
 
     classifiers=[
         'Environment :: Console',

@@ -39,7 +39,7 @@ Lightning will restore the session if you pass a logger with the same version an
 .. code-block:: python
 
     from pytorch_lightning import Trainer
-    from pytorch_lightning.logging import TestTubeLogger
+    from pytorch_lightning.loggers import TestTubeLogger
 
     logger = TestTubeLogger(
         save_dir='./savepath',
@@ -89,13 +89,14 @@ At a rough level, here's what happens inside Trainer :py:mod:`pytorch_lightning.
 
 """
 
+import logging as log
 import os
 import re
 import signal
 import warnings
-from subprocess import call
-import logging
 from abc import ABC
+from subprocess import call
+from argparse import Namespace
 
 import torch
 import torch.distributed as dist
@@ -202,7 +203,7 @@ class TrainerIOMixin(ABC):
         if last_ckpt_name is not None:
             last_ckpt_path = os.path.join(self.checkpoint_callback.filepath, last_ckpt_name)
             self.restore(last_ckpt_path, self.on_gpu)
-            logging.info(f'model and trainer restored from checkpoint: {last_ckpt_path}')
+            log.info(f'Model and Trainer restored from checkpoint: {last_ckpt_path}')
             did_restore = True
 
         return did_restore
@@ -221,14 +222,14 @@ class TrainerIOMixin(ABC):
             pass
 
         if on_slurm:
-            logging.info('set slurm handle signals')
+            log.info('Set SLURM handle signals.')
             signal.signal(signal.SIGUSR1, self.sig_handler)
             signal.signal(signal.SIGTERM, self.term_handler)
 
     def sig_handler(self, signum, frame):
         if self.proc_rank == 0:
             # save weights
-            logging.info('handling SIGUSR1')
+            log.info('handling SIGUSR1')
             self.hpc_save(self.weights_save_path, self.logger)
 
             # find job id
@@ -236,36 +237,53 @@ class TrainerIOMixin(ABC):
             cmd = 'scontrol requeue {}'.format(job_id)
 
             # requeue job
-            logging.info('\nrequeing job {job_id}...')
+            log.info(f'requeing job {job_id}...')
             result = call(cmd, shell=True)
 
             # print result text
             if result == 0:
-                logging.info('requeued exp {job_id}')
+                log.info(f'requeued exp {job_id}')
             else:
-                logging.info('requeue failed...')
+                log.info('requeue failed...')
 
             # close experiment to avoid issues
             self.logger.close()
 
     def term_handler(self, signum, frame):
         # save
-        logging.info("bypassing sigterm")
+        log.info("bypassing sigterm")
 
     # --------------------
     # MODEL SAVE CHECKPOINT
     # --------------------
+    def _atomic_save(self, checkpoint, filepath):
+        """Saves a checkpoint atomically, avoiding the creation of incomplete checkpoints.
+
+        This will create a temporary checkpoint with a suffix of ``.part``, then copy it to the final location once
+        saving is finished.
+
+        Args:
+            checkpoint (object): The object to save.
+                Built to be used with the ``dump_checkpoint`` method, but can deal with anything which ``torch.save``
+                accepts.
+            filepath (str|pathlib.Path): The path to which the checkpoint will be saved.
+                This points to the file that the checkpoint will be stored in.
+        """
+        tmp_path = str(filepath) + ".part"
+        torch.save(checkpoint, tmp_path)
+        os.replace(tmp_path, filepath)
+
     def save_checkpoint(self, filepath):
         checkpoint = self.dump_checkpoint()
 
         # do the actual save
         try:
-            torch.save(checkpoint, filepath)
+            self._atomic_save(checkpoint, filepath)
         except AttributeError:
             if 'hparams' in checkpoint:
                 del checkpoint['hparams']
 
-            torch.save(checkpoint, filepath)
+            self._atomic_save(checkpoint, filepath)
 
     def restore(self, checkpoint_path, on_gpu):
 
@@ -413,12 +431,12 @@ class TrainerIOMixin(ABC):
         # do the actual save
         # TODO: fix for anything with multiprocess DP, DDP, DDP2
         try:
-            torch.save(checkpoint, filepath)
+            self._atomic_save(checkpoint, filepath)
         except AttributeError:
             if 'hparams' in checkpoint:
                 del checkpoint['hparams']
 
-            torch.save(checkpoint, filepath)
+            self._atomic_save(checkpoint, filepath)
 
         return filepath
 
@@ -443,7 +461,7 @@ class TrainerIOMixin(ABC):
         # call model hook
         model.on_hpc_load(checkpoint)
 
-        logging.info(f'restored hpc model from: {filepath}')
+        log.info(f'restored hpc model from: {filepath}')
 
     def max_ckpt_in_folder(self, path, name_key='ckpt_'):
         files = os.listdir(path)
@@ -458,33 +476,3 @@ class TrainerIOMixin(ABC):
             ckpt_vs.append(int(name))
 
         return max(ckpt_vs)
-
-
-def load_hparams_from_tags_csv(tags_csv):
-    from argparse import Namespace
-    import pandas as pd
-
-    tags_df = pd.read_csv(tags_csv)
-    dic = tags_df.to_dict(orient='records')
-
-    ns_dict = {row['key']: convert(row['value']) for row in dic}
-
-    ns = Namespace(**ns_dict)
-    return ns
-
-
-def convert(val):
-    constructors = [int, float, str]
-
-    if type(val) is str:
-        if val.lower() == 'true':
-            return True
-        if val.lower() == 'false':
-            return False
-
-    for c in constructors:
-        try:
-            return c(val)
-        except ValueError:
-            pass
-    return val

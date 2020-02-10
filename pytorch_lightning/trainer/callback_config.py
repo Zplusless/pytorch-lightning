@@ -2,7 +2,6 @@ import os
 from abc import ABC
 
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
-from pytorch_lightning.logging import TestTubeLogger
 
 
 class TrainerCallbackConfigMixin(ABC):
@@ -24,8 +23,11 @@ class TrainerCallbackConfigMixin(ABC):
         if self.checkpoint_callback is True:
             # init a default one
             if self.logger is not None:
+                save_dir = (getattr(self.logger, 'save_dir', None) or
+                            getattr(self.logger, '_save_dir', None) or
+                            self.default_save_path)
                 ckpt_path = os.path.join(
-                    self.default_save_path,
+                    save_dir,
                     self.logger.name,
                     f'version_{self.logger.version}',
                     "checkpoints"
@@ -50,12 +52,22 @@ class TrainerCallbackConfigMixin(ABC):
         if self.weights_save_path is None:
             self.weights_save_path = self.default_save_path
 
-    def configure_early_stopping(self, early_stop_callback, logger):
+    def configure_early_stopping(self, early_stop_callback):
         if early_stop_callback is True:
             self.early_stop_callback = EarlyStopping(
                 monitor='val_loss',
                 patience=3,
+                strict=True,
                 verbose=True,
+                mode='min'
+            )
+            self.enable_early_stop = True
+        elif early_stop_callback is None:
+            self.early_stop_callback = EarlyStopping(
+                monitor='val_loss',
+                patience=3,
+                strict=False,
+                verbose=False,
                 mode='min'
             )
             self.enable_early_stop = True
@@ -65,18 +77,3 @@ class TrainerCallbackConfigMixin(ABC):
         else:
             self.early_stop_callback = early_stop_callback
             self.enable_early_stop = True
-
-        # configure logger
-        if logger is True:
-            # default logger
-            self.logger = TestTubeLogger(
-                save_dir=self.default_save_path,
-                version=self.slurm_job_id,
-                name='lightning_logs'
-            )
-            self.logger.rank = 0
-        elif logger is False:
-            self.logger = None
-        else:
-            self.logger = logger
-            self.logger.rank = 0

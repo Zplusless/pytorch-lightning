@@ -1,33 +1,22 @@
+"""
+Callbacks
+=========
+
+Callbacks supported by Lightning
+"""
+
 import os
 import shutil
-import logging
+import logging as log
 import warnings
+
 import numpy as np
 
 from pytorch_lightning.overrides.data_parallel import LightningDistributedDataParallel
 
 
 class Callback(object):
-    """Abstract base class used to build new callbacks.
-
-    # Properties
-        * params: dict. Training parameters
-            (eg. verbosity, batch size, number of epochs...).
-            Reference of the model being trained.
-
-    The `logs` dictionary that callback methods take as argument will contain keys
-     for quantities relevant to the current batch or epoch.
-    Currently, the `.fit()` method of the `Sequential` model class will include the following
-     quantities in the `logs` that it passes to its callbacks:
-    * on_epoch_end: logs include `acc` and `loss`, and
-            optionally include `val_loss`
-            (if validation is enabled in `fit`), and `val_acc`
-            (if validation and accuracy monitoring are enabled).
-    * on_batch_begin: logs include `size`,
-            the number of samples in the current batch.
-    * on_batch_end: logs include `loss`, and optionally `acc`
-            (if accuracy monitoring is enabled).
-
+    r"""Abstract base class used to build new callbacks.
     """
 
     def __init__(self):
@@ -38,18 +27,34 @@ class Callback(object):
         self.params = params
 
     def set_model(self, model):
-        if type(model) is LightningDistributedDataParallel:
+        if isinstance(model, LightningDistributedDataParallel):
             model = model.module
         self.model = model
 
     def on_epoch_begin(self, epoch, logs=None):
-        pass
+        """
+        called when the epoch begins
+
+        Args:
+            epoch (int): current epoch
+            logs (dict): key-value pairs of quantities to monitor
+
+            Example:
+
+                on_epoch_begin(epoch=2, logs={'val_loss': 0.2})
+        """
 
     def on_epoch_end(self, epoch, logs=None):
         pass
 
     def on_batch_begin(self, batch, logs=None):
-        pass
+        """
+        called when the batch starts.
+
+        Args:
+            batch (Tensor): current batch tensor
+            logs (dict): key-value pairs of quantities to monitor
+        """
 
     def on_batch_end(self, batch, logs=None):
         pass
@@ -62,40 +67,52 @@ class Callback(object):
 
 
 class EarlyStopping(Callback):
-    """Stop training when a monitored quantity has stopped improving.
+    r"""
+    Stop training when a monitored quantity has stopped improving.
 
-    # Arguments
-        monitor: quantity to be monitored.
-        min_delta: minimum change in the monitored quantity
+    Args:
+        monitor (str): quantity to be monitored. Default: ``'val_loss'``.
+        min_delta (float): minimum change in the monitored quantity
             to qualify as an improvement, i.e. an absolute
-            change of less than min_delta, will count as no
-            improvement.
-        patience: number of epochs with no improvement
-            after which training will be stopped.
-        verbose: verbosity mode.
-        mode: one of {auto, min, max}. In `min` mode,
+            change of less than `min_delta`, will count as no
+            improvement. Default: ``0``.
+        patience (int): number of epochs with no improvement
+            after which training will be stopped. Default: ``0``.
+        verbose (bool): verbosity mode. Default: ``0``.
+        mode (str): one of {auto, min, max}. In `min` mode,
             training will stop when the quantity
             monitored has stopped decreasing; in `max`
             mode it will stop when the quantity
             monitored has stopped increasing; in `auto`
             mode, the direction is automatically inferred
-            from the name of the monitored quantity.
+            from the name of the monitored quantity. Default: ``'auto'``.
+        strict (bool): whether to crash the training if `monitor` is
+            not found in the metrics. Default: ``True``.
 
+    Example::
+
+        from pytorch_lightning import Trainer
+        from pytorch_lightning.callbacks import EarlyStopping
+
+        early_stopping = EarlyStopping('val_loss')
+        Trainer(early_stop_callback=early_stopping)
     """
 
     def __init__(self, monitor='val_loss',
-                 min_delta=0.0, patience=0, verbose=0, mode='auto'):
+                 min_delta=0.0, patience=0, verbose=0, mode='auto', strict=True):
         super(EarlyStopping, self).__init__()
 
         self.monitor = monitor
         self.patience = patience
         self.verbose = verbose
+        self.strict = strict
         self.min_delta = min_delta
         self.wait = 0
         self.stopped_epoch = 0
 
         if mode not in ['auto', 'min', 'max']:
-            logging.info(f'EarlyStopping mode {mode} is unknown, fallback to auto mode.')
+            if self.verbose > 0:
+                log.info(f'EarlyStopping mode {mode} is unknown, fallback to auto mode.')
             mode = 'auto'
 
         if mode == 'min':
@@ -115,6 +132,22 @@ class EarlyStopping(Callback):
 
         self.on_train_begin()
 
+    def check_metrics(self, logs):
+        monitor_val = logs.get(self.monitor)
+        error_msg = (f'Early stopping conditioned on metric `{self.monitor}`'
+                     f' which is not available. Available metrics are:'
+                     f' `{"`, `".join(list(logs.keys()))}`')
+
+        if monitor_val is None:
+            if self.strict:
+                raise RuntimeError(error_msg)
+            if self.verbose > 0:
+                warnings.warn(error_msg, RuntimeWarning)
+
+            return False
+
+        return True
+
     def on_train_begin(self, logs=None):
         # Allow instances to be re-used
         self.wait = 0
@@ -122,16 +155,11 @@ class EarlyStopping(Callback):
         self.best = np.Inf if self.monitor_op == np.less else -np.Inf
 
     def on_epoch_end(self, epoch, logs=None):
-        current = logs.get(self.monitor)
         stop_training = False
-        if current is None:
-            warnings.warn(
-                f'Early stopping conditioned on metric `{self.monitor}`'
-                f' which is not available. Available metrics are: {",".join(list(logs.keys()))}',
-                RuntimeWarning)
-            stop_training = True
+        if not self.check_metrics(logs):
             return stop_training
 
+        current = logs.get(self.monitor)
         if self.monitor_op(current - self.min_delta, self.best):
             self.best = current
             self.wait = 0
@@ -146,24 +174,28 @@ class EarlyStopping(Callback):
 
     def on_train_end(self, logs=None):
         if self.stopped_epoch > 0 and self.verbose > 0:
-            logging.info(f'Epoch {self.stopped_epoch + 1:05d}: early stopping')
+            warnings.warn('Displayed epoch numbers by `EarlyStopping` start from "1" until v0.6.x,'
+                          ' but will start from "0" in v0.8.0.', DeprecationWarning)
+            log.info(f'Epoch {self.stopped_epoch + 1:05d}: early stopping')
 
 
 class ModelCheckpoint(Callback):
-    """Save the model after every epoch.
+    r"""
 
-    The `filepath` can contain named formatting options,
-    which will be filled the value of `epoch` and
-    keys in `logs` (passed in `on_epoch_end`).
-    For example: if `filepath` is `weights.{epoch:02d}-{val_loss:.2f}.hdf5`,
-    then the model checkpoints will be saved with the epoch number and
-    the validation loss in the filename.
+    Save the model after every epoch.
 
-    # Arguments
-        filepath: string, path to save the model file.
-        monitor: quantity to monitor.
-        verbose: verbosity mode, 0 or 1.
-        save_top_k: if `save_top_k == k`,
+    Args:
+        filepath (str): path to save the model file.
+            Can contain named formatting options to be auto-filled.
+
+            Example::
+
+                # save epoch and val_loss in name
+                ModelCheckpoint(filepath='{epoch:02d}-{val_loss:.2f}.hdf5')
+                # saves file like: /path/epoch_2-val_loss_0.2.hdf5
+        monitor (str): quantity to monitor.
+        verbose (bool): verbosity mode, 0 or 1.
+        save_top_k (int): if `save_top_k == k`,
             the best k models according to
             the quantity monitored will be saved.
             if `save_top_k == 0`, no models are saved.
@@ -172,7 +204,7 @@ class ModelCheckpoint(Callback):
             if `save_top_k >= 2` and the callback is called multiple
             times inside an epoch, the name of the saved file will be
             appended with a version count starting with `v0`.
-        mode: one of {auto, min, max}.
+        mode (str): one of {auto, min, max}.
             If `save_top_k != 0`, the decision
             to overwrite the current save file is made
             based on either the maximization or the
@@ -180,11 +212,20 @@ class ModelCheckpoint(Callback):
             this should be `max`, for `val_loss` this should
             be `min`, etc. In `auto` mode, the direction is
             automatically inferred from the name of the monitored quantity.
-        save_weights_only: if True, then only the model's weights will be
+        save_weights_only (bool): if True, then only the model's weights will be
             saved (`model.save_weights(filepath)`), else the full model
             is saved (`model.save(filepath)`).
-        period: Interval (number of epochs) between checkpoints.
+        period (int): Interval (number of epochs) between checkpoints.
 
+    Example::
+
+        from pytorch_lightning import Trainer
+        from pytorch_lightning.callbacks import ModelCheckpoint
+
+        checkpoint_callback = ModelCheckpoint(filepath='my_path')
+        Trainer(checkpoint_callback=checkpoint_callback)
+
+        # saves checkpoints to my_path whenever 'val_loss' has a new min
     """
 
     def __init__(self, filepath, monitor='val_loss', verbose=0,
@@ -311,7 +352,7 @@ class ModelCheckpoint(Callback):
                         else:
                             self.best = max(self.best_k_models.values())
                         if self.verbose > 0:
-                            logging.info(
+                            log.info(
                                 f'\nEpoch {epoch:05d}: {self.monitor} reached'
                                 f' {current:0.5f} (best {self.best:0.5f}), saving model to'
                                 f' {filepath} as top {self.save_top_k}')
@@ -319,22 +360,32 @@ class ModelCheckpoint(Callback):
 
                     else:
                         if self.verbose > 0:
-                            logging.info(
+                            log.info(
                                 f'\nEpoch {epoch:05d}: {self.monitor}'
                                 f' was not in top {self.save_top_k}')
 
             else:
                 if self.verbose > 0:
-                    logging.info(f'\nEpoch {epoch:05d}: saving model to {filepath}')
+                    log.info(f'\nEpoch {epoch:05d}: saving model to {filepath}')
                 self._save_model(filepath)
 
 
 class GradientAccumulationScheduler(Callback):
-    """Change gradient accumulation factor according to scheduling.
+    r"""
+    Change gradient accumulation factor according to scheduling.
 
-    # Arguments
-        scheduling: dict, scheduling in format {epoch: accumulation_factor}
+    Args:
+        scheduling (dict): scheduling in format {epoch: accumulation_factor}
+        warning:: Epochs indexing starts from "1" until v0.6.x, but will start from "0" in v0.8.0.
 
+    Example::
+
+        from pytorch_lightning import Trainer
+        from pytorch_lightning.callbacks import GradientAccumulationScheduler
+
+        # at epoch 5 start accumulating every 2 batches
+        accumulator = GradientAccumulationScheduler(scheduling: {5: 2})
+        Trainer(accumulate_grad_batches=accumulator)
     """
 
     def __init__(self, scheduling: dict):
@@ -346,17 +397,21 @@ class GradientAccumulationScheduler(Callback):
                 raise TypeError("All epoches and accumulation factor must be integers")
 
         minimal_epoch = min(scheduling.keys())
+        warnings.warn('Epochs indexing of `scheduling` starts from "1" until v0.6.x,'
+                      ' but will start from "0" in v0.8.0.', DeprecationWarning)
         if minimal_epoch < 1:
             msg = f"Epochs indexing from 1, epoch {minimal_epoch} cannot be interpreted correct"
             raise IndexError(msg)
-        elif minimal_epoch != 1:  # if user didnt define first epoch accumulation factor
+        if minimal_epoch != 1:  # if user didnt define first epoch accumulation factor
             scheduling.update({1: 1})
 
         self.scheduling = scheduling
         self.epochs = sorted(scheduling.keys())
 
     def on_epoch_begin(self, epoch, trainer):
-        epoch += 1  # indexing epochs from 1
+        # indexing epochs from 1 (until v0.6.x)
+        # In v0.8.0, `epoch += 1` should be removed.
+        epoch += 1
         for i in reversed(range(len(self.epochs))):
             if epoch >= self.epochs[i]:
                 trainer.accumulate_grad_batches = self.scheduling.get(self.epochs[i])
@@ -368,6 +423,6 @@ class GradientAccumulationScheduler(Callback):
 #     losses = [10, 9, 8, 8, 6, 4.3, 5, 4.4, 2.8, 2.5]
 #     for i, loss in enumerate(losses):
 #         should_stop = c.on_epoch_end(i, logs={'val_loss': loss})
-#         logging.info(loss)
+#         log.info(loss)
 #         if should_stop:
 #             break

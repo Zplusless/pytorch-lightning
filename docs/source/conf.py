@@ -62,7 +62,6 @@ version = pytorch_lightning.__version__
 # The full version, including alpha/beta/rc tags
 release = pytorch_lightning.__version__
 
-
 # -- General configuration ---------------------------------------------------
 
 # If your documentation needs a minimal Sphinx version, state it here.
@@ -84,6 +83,7 @@ extensions = [
     'sphinx.ext.autosummary',
     'sphinx.ext.napoleon',
     'recommonmark',
+    'sphinx.ext.autosectionlabel',
     # 'm2r',
     'nbsphinx',
 ]
@@ -128,7 +128,6 @@ exclude_patterns = ['*.test_*']
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = None
 
-
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
@@ -151,7 +150,7 @@ html_theme_options = {
     'logo_only': False,
 }
 
-html_logo = '_static/images/lightning_logo_small.png'
+html_logo = '_static/images/lightning_logo-name.svg'
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -173,7 +172,6 @@ html_static_path = ['_static']
 
 # Output file base name for HTML help builder.
 htmlhelp_basename = project + '-doc'
-
 
 # -- Options for LaTeX output ------------------------------------------------
 
@@ -198,7 +196,6 @@ latex_documents = [
     (master_doc, project + '.tex', project + ' Documentation', author, 'manual'),
 ]
 
-
 # -- Options for manual page output ------------------------------------------
 
 # One entry per manual page. List of tuples
@@ -206,7 +203,6 @@ latex_documents = [
 man_pages = [
     (master_doc, project, project + ' Documentation', [author], 1)
 ]
-
 
 # -- Options for Texinfo output ----------------------------------------------
 
@@ -217,7 +213,6 @@ texinfo_documents = [
     (master_doc, project, project + ' Documentation', author, project,
      'One line description of project.', 'Miscellaneous'),
 ]
-
 
 # -- Options for Epub output -------------------------------------------------
 
@@ -236,7 +231,6 @@ epub_title = project
 # A list of files that should not be packed into the epub file.
 epub_exclude_files = ['search.html']
 
-
 # -- Extension configuration -------------------------------------------------
 
 # -- Options for intersphinx extension ---------------------------------------
@@ -248,7 +242,6 @@ intersphinx_mapping = {'https://docs.python.org/': None}
 
 # If true, `todo` and `todoList` produce output, else they produce nothing.
 todo_include_todos = True
-
 
 # https://github.com/rtfd/readthedocs.org/issues/1139
 # I use sphinx-apidoc to auto-generate API documentation for my project.
@@ -302,7 +295,7 @@ with open(os.path.join(PATH_ROOT, 'requirements.txt'), 'r') as fp:
             MOCK_REQUIRE_PACKAGES.append(pkg.rstrip())
 
 # TODO: better parse from package since the import name and package name may differ
-MOCK_MANUAL_PACKAGES = ['torch', 'torchvision', 'sklearn', 'test_tube', 'mlflow', 'comet_ml']
+MOCK_MANUAL_PACKAGES = ['torch', 'torchvision', 'sklearn', 'test_tube', 'mlflow', 'comet_ml', 'wandb', 'neptune']
 autodoc_mock_imports = MOCK_REQUIRE_PACKAGES + MOCK_MANUAL_PACKAGES
 # for mod_name in MOCK_REQUIRE_PACKAGES:
 #     sys.modules[mod_name] = mock.Mock()
@@ -310,7 +303,7 @@ autodoc_mock_imports = MOCK_REQUIRE_PACKAGES + MOCK_MANUAL_PACKAGES
 
 # Options for the linkcode extension
 # ----------------------------------
-github_user = 'williamFalcon'
+github_user = 'PyTorchLightning'
 github_repo = project
 
 
@@ -325,7 +318,7 @@ def linkcode_resolve(domain, info):
             obj = getattr(obj, part)
         fname = inspect.getsourcefile(obj)
         # https://github.com/rtfd/readthedocs.org/issues/5735
-        if any([s in fname for s in ('readthedocs', 'checkouts')]):
+        if any([s in fname for s in ('readthedocs', 'rtfd', 'checkouts')]):
             # /home/docs/checkouts/readthedocs.org/user_builds/pytorch_lightning/checkouts/
             #  devel/pytorch_lightning/utilities/cls_experiment.py#L26-L176
             path_top = os.path.abspath(os.path.join('..', '..', '..'))
@@ -345,13 +338,21 @@ def linkcode_resolve(domain, info):
     # import subprocess
     # tag = subprocess.Popen(['git', 'rev-parse', 'HEAD'], stdout=subprocess.PIPE,
     #                        universal_newlines=True).communicate()[0][:-1]
+    branch = filename.split('/')[0]
+    # do mapping from latest tags to master
+    branch = {'latest': 'master', 'stable': 'master'}.get(branch, branch)
+    filename = '/'.join([branch] + filename.split('/')[1:])
     return "https://github.com/%s/%s/blob/%s" \
            % (github_user, github_repo, filename)
 
 
 autodoc_member_order = 'groupwise'
 autoclass_content = 'both'
-autodoc_default_flags = [
-    'members', 'undoc-members', 'show-inheritance', 'private-members',
-    # 'special-members', 'inherited-members'
-]
+autodoc_default_options = {
+    'members': True,
+    'special-members': '__call__',
+    'undoc-members': True,
+    # 'exclude-members': '__weakref__',
+    'show-inheritance': True,
+    'private-members': True,
+}

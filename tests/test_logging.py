@@ -6,10 +6,14 @@ import torch
 
 import tests.utils as tutils
 from pytorch_lightning import Trainer
-from pytorch_lightning.logging import (
+from pytorch_lightning.loggers import (
     LightningLoggerBase,
     rank_zero_only,
     TensorBoardLogger,
+    MLFlowLogger,
+    CometLogger,
+    WandbLogger,
+    NeptuneLogger
 )
 from pytorch_lightning.testing import LightningTestModel
 
@@ -63,11 +67,6 @@ def test_mlflow_logger(tmpdir):
     """Verify that basic functionality of mlflow logger works."""
     tutils.reset_seed()
 
-    try:
-        from pytorch_lightning.logging import MLFlowLogger
-    except ModuleNotFoundError:
-        return
-
     hparams = tutils.get_hparams()
     model = LightningTestModel(hparams)
 
@@ -90,11 +89,6 @@ def test_mlflow_logger(tmpdir):
 def test_mlflow_pickle(tmpdir):
     """Verify that pickling trainer with mlflow logger works."""
     tutils.reset_seed()
-
-    try:
-        from pytorch_lightning.logging import MLFlowLogger
-    except ModuleNotFoundError:
-        return
 
     # hparams = tutils.get_hparams()
     # model = LightningTestModel(hparams)
@@ -122,11 +116,6 @@ def test_comet_logger(tmpdir, monkeypatch):
     monkeypatch.setattr(atexit, "register", lambda _: None)
 
     tutils.reset_seed()
-
-    try:
-        from pytorch_lightning.logging import CometLogger
-    except ModuleNotFoundError:
-        return
 
     hparams = tutils.get_hparams()
     model = LightningTestModel(hparams)
@@ -164,11 +153,6 @@ def test_comet_pickle(tmpdir, monkeypatch):
 
     tutils.reset_seed()
 
-    try:
-        from pytorch_lightning.logging import CometLogger
-    except ModuleNotFoundError:
-        return
-
     # hparams = tutils.get_hparams()
     # model = LightningTestModel(hparams)
 
@@ -180,6 +164,65 @@ def test_comet_pickle(tmpdir, monkeypatch):
         project_name="general",
         workspace="dummy-test",
     )
+
+    trainer_options = dict(
+        default_save_path=tmpdir,
+        max_epochs=1,
+        logger=logger
+    )
+
+    trainer = Trainer(**trainer_options)
+    pkl_bytes = pickle.dumps(trainer)
+    trainer2 = pickle.loads(pkl_bytes)
+    trainer2.logger.log_metrics({"acc": 1.0})
+
+
+def test_wandb_logger(tmpdir):
+    """Verify that basic functionality of wandb logger works."""
+    tutils.reset_seed()
+
+    wandb_dir = os.path.join(tmpdir, "wandb")
+    _ = WandbLogger(save_dir=wandb_dir, anonymous=True)
+
+
+def test_neptune_logger(tmpdir):
+    """Verify that basic functionality of neptune logger works."""
+    tutils.reset_seed()
+
+    hparams = tutils.get_hparams()
+    model = LightningTestModel(hparams)
+    logger = NeptuneLogger(offline_mode=True)
+
+    trainer_options = dict(
+        default_save_path=tmpdir,
+        max_epochs=1,
+        train_percent_check=0.01,
+        logger=logger
+    )
+    trainer = Trainer(**trainer_options)
+    result = trainer.fit(model)
+
+    print('result finished')
+    assert result == 1, "Training failed"
+
+
+def test_wandb_pickle(tmpdir):
+    """Verify that pickling trainer with wandb logger works."""
+    tutils.reset_seed()
+
+    wandb_dir = str(tmpdir)
+    logger = WandbLogger(save_dir=wandb_dir, anonymous=True)
+    assert logger is not None
+
+
+def test_neptune_pickle(tmpdir):
+    """Verify that pickling trainer with neptune logger works."""
+    tutils.reset_seed()
+
+    # hparams = tutils.get_hparams()
+    # model = LightningTestModel(hparams)
+
+    logger = NeptuneLogger(offline_mode=True)
 
     trainer_options = dict(
         default_save_path=tmpdir,
@@ -230,8 +273,8 @@ def test_tensorboard_automatic_versioning(tmpdir):
     """Verify that automatic versioning works"""
 
     root_dir = tmpdir.mkdir("tb_versioning")
-    root_dir.mkdir("0")
-    root_dir.mkdir("1")
+    root_dir.mkdir("version_0")
+    root_dir.mkdir("version_1")
 
     logger = TensorBoardLogger(save_dir=tmpdir, name="tb_versioning")
 
@@ -242,9 +285,9 @@ def test_tensorboard_manual_versioning(tmpdir):
     """Verify that manual versioning works"""
 
     root_dir = tmpdir.mkdir("tb_versioning")
-    root_dir.mkdir("0")
-    root_dir.mkdir("1")
-    root_dir.mkdir("2")
+    root_dir.mkdir("version_0")
+    root_dir.mkdir("version_1")
+    root_dir.mkdir("version_2")
 
     logger = TensorBoardLogger(save_dir=tmpdir, name="tb_versioning", version=1)
 
@@ -309,7 +352,7 @@ def test_custom_logger(tmpdir):
 
     trainer_options = dict(
         max_epochs=1,
-        train_percent_check=0.01,
+        train_percent_check=0.05,
         logger=logger,
         default_save_path=tmpdir
     )

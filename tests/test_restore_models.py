@@ -1,4 +1,4 @@
-import logging
+import logging as log
 import os
 
 import torch
@@ -41,12 +41,11 @@ def test_running_test_pretrained_model_ddp(tmpdir):
     trainer = Trainer(**trainer_options)
     result = trainer.fit(model)
 
-    exp = logger.experiment
-    logging.info(os.listdir(exp.get_data_path(exp.name, exp.version)))
+    log.info(os.listdir(tutils.get_data_path(logger, path_dir=tmpdir)))
 
     # correct result and ok accuracy
     assert result == 1, 'training failed to complete'
-    pretrained_model = tutils.load_model(logger.experiment,
+    pretrained_model = tutils.load_model(logger,
                                          trainer.checkpoint_callback.filepath,
                                          module_class=LightningTestModel)
 
@@ -59,9 +58,9 @@ def test_running_test_pretrained_model_ddp(tmpdir):
 
 
 def test_running_test_pretrained_model(tmpdir):
+    """Verify test() on pretrained model."""
     tutils.reset_seed()
 
-    """Verify test() on pretrained model"""
     hparams = tutils.get_hparams()
     model = LightningTestModel(hparams)
 
@@ -87,29 +86,29 @@ def test_running_test_pretrained_model(tmpdir):
     # correct result and ok accuracy
     assert result == 1, 'training failed to complete'
     pretrained_model = tutils.load_model(
-        logger.experiment, trainer.checkpoint_callback.filepath, module_class=LightningTestModel
+        logger, trainer.checkpoint_callback.filepath, module_class=LightningTestModel
     )
 
     new_trainer = Trainer(**trainer_options)
     new_trainer.test(pretrained_model)
 
     # test we have good test accuracy
-    tutils.assert_ok_test_acc(new_trainer)
+    tutils.assert_ok_model_acc(new_trainer)
 
 
 def test_load_model_from_checkpoint(tmpdir):
+    """Verify test() on pretrained model."""
     tutils.reset_seed()
 
-    """Verify test() on pretrained model"""
     hparams = tutils.get_hparams()
     model = LightningTestModel(hparams)
 
     trainer_options = dict(
         show_progress_bar=False,
-        max_epochs=1,
+        max_epochs=2,
         train_percent_check=0.4,
         val_percent_check=0.2,
-        checkpoint_callback=True,
+        checkpoint_callback=ModelCheckpoint(tmpdir, save_top_k=-1),
         logger=False,
         default_save_path=tmpdir,
     )
@@ -120,9 +119,12 @@ def test_load_model_from_checkpoint(tmpdir):
 
     # correct result and ok accuracy
     assert result == 1, 'training failed to complete'
-    pretrained_model = LightningTestModel.load_from_checkpoint(
-        os.path.join(trainer.checkpoint_callback.filepath, "_ckpt_epoch_0.ckpt")
-    )
+
+    # load last checkpoint
+    last_checkpoint = os.path.join(trainer.checkpoint_callback.filepath, "_ckpt_epoch_1.ckpt")
+    if not os.path.isfile(last_checkpoint):
+        last_checkpoint = os.path.join(trainer.checkpoint_callback.filepath, "_ckpt_epoch_0.ckpt")
+    pretrained_model = LightningTestModel.load_from_checkpoint(last_checkpoint)
 
     # test that hparams loaded correctly
     for k, v in vars(hparams).items():
@@ -132,13 +134,13 @@ def test_load_model_from_checkpoint(tmpdir):
     new_trainer.test(pretrained_model)
 
     # test we have good test accuracy
-    tutils.assert_ok_test_acc(new_trainer)
+    tutils.assert_ok_model_acc(new_trainer)
 
 
 def test_running_test_pretrained_model_dp(tmpdir):
+    """Verify test() on pretrained model."""
     tutils.reset_seed()
 
-    """Verify test() on pretrained model"""
     if not tutils.can_run_gpu_test():
         return
 
@@ -153,7 +155,7 @@ def test_running_test_pretrained_model_dp(tmpdir):
 
     trainer_options = dict(
         show_progress_bar=True,
-        max_epochs=1,
+        max_epochs=4,
         train_percent_check=0.4,
         val_percent_check=0.2,
         checkpoint_callback=checkpoint,
@@ -168,7 +170,7 @@ def test_running_test_pretrained_model_dp(tmpdir):
 
     # correct result and ok accuracy
     assert result == 1, 'training failed to complete'
-    pretrained_model = tutils.load_model(logger.experiment,
+    pretrained_model = tutils.load_model(logger,
                                          trainer.checkpoint_callback.filepath,
                                          module_class=LightningTestModel)
 
@@ -176,7 +178,7 @@ def test_running_test_pretrained_model_dp(tmpdir):
     new_trainer.test(pretrained_model)
 
     # test we have good test accuracy
-    tutils.assert_ok_test_acc(new_trainer)
+    tutils.assert_ok_model_acc(new_trainer)
 
 
 def test_dp_resume(tmpdir):
@@ -269,12 +271,12 @@ def test_cpu_restore_training(tmpdir):
     logger = tutils.get_test_tube_logger(tmpdir, False, version=test_logger_version)
 
     trainer_options = dict(
-        max_epochs=2,
+        max_epochs=8,
         val_check_interval=0.50,
         val_percent_check=0.2,
         train_percent_check=0.2,
         logger=logger,
-        checkpoint_callback=ModelCheckpoint(tmpdir)
+        checkpoint_callback=ModelCheckpoint(tmpdir, save_top_k=-1)
     )
 
     # fit model
@@ -358,7 +360,7 @@ def test_model_saving_loading(tmpdir):
     trainer.save_checkpoint(new_weights_path)
 
     # load new model
-    tags_path = logger.experiment.get_data_path(logger.experiment.name, logger.experiment.version)
+    tags_path = tutils.get_data_path(logger, path_dir=tmpdir)
     tags_path = os.path.join(tags_path, 'meta_tags.csv')
     model_2 = LightningTestModel.load_from_metrics(weights_path=new_weights_path,
                                                    tags_csv=tags_path)
@@ -368,7 +370,6 @@ def test_model_saving_loading(tmpdir):
     # assert that both predictions are the same
     new_pred = model_2(x)
     assert torch.all(torch.eq(pred_before_saving, new_pred)).item() == 1
-
 
 # if __name__ == '__main__':
 #     pytest.main([__file__])
